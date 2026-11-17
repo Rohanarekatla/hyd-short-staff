@@ -74,6 +74,26 @@ Before trusting forecasts with staffing, we backtested them. Over the full 2024 
 
 None of these decides **who moves where, and when**. SurgeForce sits on top of them: any of these risk feeds can replace the forecast input.
 
+## Round 3: making AI do the work, with evidence
+
+The hackathon is about AI, so each stage of the pipeline now runs on an AI method. Each one is measured, and none is decorative.
+
+| Stage | AI method | Measured result | Grounding |
+|---|---|---|---|
+| Forecast (when) | Added ECMWF's machine-learned **AIFS** ensemble (51 members) to the three physics ensembles: 173 members live | AIFS has been operational since 2025, so it isn't in the 2024 replay | ECMWF AIFS via Open-Meteo |
+| Citizen reports | **Multilingual sentence embeddings** (multilingual-e5-small, about 100 languages) with few-shot nearest-prototype classification, **running in the browser** (Transformers.js): no API key, no data leaves the device | On 32 held-out messages in en/te/hi/ur: **90.6% vs 12.5%** for keyword rules; life-threatening reports missed **2/20 vs 17/20** | Cross-lingual crisis embeddings ([Lamsal et al. 2024](https://arxiv.org/abs/2403.16614)) |
+| Safety rule | AI may escalate a report to a human, never downgrade one the rules flagged | Covered by a test | Crisis-AI reliability concerns ([ISCRAM 2026 dispatch study](https://ojs.iscram.org/index.php/Proceedings/article/view/228)) |
+| Commander Q&A | **LLM agent** with 8 single-purpose tools over the tested planner. Claude Opus 5.5, or **Llama 3.1 locally via Ollama** (sovereign: police data stays on government hardware) | Local Llama first sent `{"areas": "['Uppal']"}` and invented extra parameters. After splitting the what-if tool and repairing arguments, it called `what_if_flooded({"areas":["Uppal"]})` correctly | [DORA benchmark, NeurIPS 2026](https://neurips.cc/virtual/2026/oral/139775): agents fail on tool selection and argument grounding |
+| Transparency | Every tool call is shown under the answer; every number must come from a tool | n/a | [ResQConnect](https://www.mdpi.com/2071-1050/18/2/1014): AI supports roles, doesn't replace them |
+
+**Deployment:** the whole app (planner, simulation, AI triage, agent client) runs in the browser, so it's hosted free on GitHub Pages. The AI models load from public CDNs and Hugging Face; the agent uses the commander's own Claude key or a local Ollama.
+
+**Next AI steps:**
+
+- Photo reports with a vision model to estimate water depth. GPT-4V reached a 27 cm mean error in [Akinboyewa et al. 2024](https://arxiv.org/pdf/2402.16684).
+- LLM extraction of ten years of news flood reports ("Groundsource") to train *where*.
+- Radar nowcasting (NowcastNet).
+
 ## What makes it realistic
 
 1. **Real forecasts.** Live mode uses 122 ensemble members. Replay uses what models actually predicted 1–3 days before 31 Aug 2024.

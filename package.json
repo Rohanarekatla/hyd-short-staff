@@ -1,8 +1,8 @@
 {
   "name": "surgeforce",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Forecast-driven flood staffing for Hyderabad: forecast for when, terrain and reports for where, two-stage staging and counterpart pairing.",
+  "description": "AI-driven flood staffing for Hyderabad: AI forecasts for when, terrain and on-device AI for where, an agent over a tested planner.",
   "type": "module",
   "engines": {
     "node": ">=21"
@@ -12,9 +12,14 @@
     "test": "node --test",
     "fetch-data": "node scripts/fetch-data.js",
     "fetch-hand": "node scripts/fetch-hand.js",
-    "backtest": "node scripts/backtest.js"
+    "backtest": "node scripts/backtest.js",
+    "agent": "node scripts/agent-demo.js",
+    "eval:intake": "node scripts/eval-intake.js"
   },
   "optionalDependencies": {
-    "@anthropic-ai/sdk": "^1.9.0"
+    "@anthropic-ai/sdk": "1.3.0"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "4.3.2"
   }
 }

@@ -1,22 +1,35 @@
 # SurgeForce
 
-Forecast-driven disaster staffing for Hyderabad (CipherCop 2026, Track 02). SurgeForce decides, before the rain, which officers, teams and volunteers go where, and when. Its design comes from a backtest of two monsoons: global forecasts are skilful for *when* heavy rain hits the city (ROC 0.81) but have no value for *where* inside it. So the forecast sets timing, while HAND terrain and citizen reports set location, in a two-stage plan. Every move goes through a human commander.
+AI command centre for flood staffing in Hyderabad (CipherCop 2026, Track 02). It decides, before the rain, which officers, teams and volunteers go where, and when, with a human commander approving every move.
 
-See [RESEARCH.md](RESEARCH.md) for the country research (Japan, Korea, Singapore, Hong Kong, Taiwan, the US, Kerala), the ideas behind each feature, the demo script and judge Q&A.
+**Live demo:** https://rohanarekatla.github.io/hyd-short-staff/ · **Team overview:** [OVERVIEW.md](OVERVIEW.md) · **Research:** [RESEARCH.md](RESEARCH.md)
+
+Where AI does the work:
+
+- **When:** a 173-member ensemble, including ECMWF's machine-learned AIFS model. Backtesting showed it predicts *when* heavy rain hits the city (ROC 0.81).
+- **Where:** a HAND terrain model plus citizen reports read by on-device AI. The forecasts have no value for *where*, so they aren't used for it.
+- **Reading reports:** multilingual embeddings in the browser. 91% accuracy on held-out English, Telugu, Hindi and Urdu messages, vs 13% for keyword rules.
+- **Optimisation and proof:** an optimiser and a Monte Carlo simulation (rescues within 30 minutes go from 83% to 96%).
+- **Talking to the commander:** an agent (Claude Opus 5.5, or local Llama 3.1) that answers only by calling the planner's tools.
 
 ## Run
 
-Needs Node 21 or later. Nothing to install to run it. `npm install` only adds the optional Claude SDK for the copilot (set `ANTHROPIC_API_KEY`); without it, sitreps use a template.
+Everything runs in the browser, so any static host works (it is deployed on GitHub Pages). Locally it needs Node 21 or later and nothing installed:
 
 ```bash
-npm start          # http://localhost:8520
+npm start          # http://localhost:8520 (static server; all logic runs in the browser)
 npm test           # 8 tests, including the full two-stage plan and simulation on the real 2024 replay
 npm run fetch-data # optional: refresh the OSM/DEM/OSRM/GloFAS snapshot in data/ (~2 min)
 npm run fetch-hand # optional: rebuild the 250 m HAND terrain grid (~1 min)
 npm run backtest   # optional: re-run the 2024-2025 forecast backtest (~1 min)
+npm install && npm run eval:intake   # re-run the AI triage evaluation (downloads the model once)
+npm run agent -- "What if Uppal floods?"   # ask the agent from the terminal (needs `ollama serve`, or --claude with ANTHROPIC_API_KEY)
 ```
 
-The data snapshot is committed, so replay mode works offline. Live mode needs internet. If the network drops, it falls back to the last good forecast.
+The data snapshot is committed, so replay mode works offline. Live mode fetches the forecast from the browser. The AI agent needs one of two providers:
+
+- **Local:** run `OLLAMA_ORIGINS=http://localhost:8520,https://rohanarekatla.github.io ollama serve` with `llama3.1` pulled.
+- **Claude:** paste an Anthropic API key in the AI Assistant tab. It stays in that tab.
 
 ## What it does
 
@@ -27,7 +40,8 @@ The data snapshot is committed, so replay mode works offline. Live mode needs in
 | HAND terrain exposure (where) on a 250 m grid with OSM nalas | NOAA National Water Model | `scripts/fetch-hand.js`, `lib/risk.js` |
 | Cost–loss decision rule: act when P ≥ C/L | Richardson 2000 | `lib/risk.js` |
 | Monte Carlo + discrete-event response simulation with depth–disruption travel | Pregnolato 2017 | `lib/sim.js` |
-| Claude copilot: situation reports in en/te/hi/ur | | `lib/copilot.js` |
+| On-device AI triage of citizen reports (multilingual-e5, Transformers.js) | CrisisTransformers, SOCDA | `lib/ai/intake-ai.js`, `scripts/eval-intake.js` |
+| EOC agent with 8 planner tools (Claude or local Llama via Ollama) | DORA benchmark | `lib/ai/agent.js`, `scripts/agent-demo.js` |
 | Counterparts pre-designated before the rain, activated on confirmation; tiers city → district → TSSP; floors kept | Japan 対口支援, 2025 Nankai Trough pre-designation | `pairCounterparts` in `lib/planner.js` |
 | Typed-team pre-positioning by min-cost flow (METs, DRF, fire crews, volunteers, NDRF on request) | Singapore PUB QRT, US EMAC | `allocate` in `lib/planner.js`, `lib/mcf.js` |
 | Underpass closures 30 min before onset (51 real underpasses) | Korea after Osong 2023 | `plan` in `lib/planner.js` |
@@ -43,7 +57,11 @@ The data snapshot is committed, so replay mode works offline. Live mode needs in
 
 **Synthetic, and labelled as such in the UI:** deployable officers per station (22% vacancy applied), team placement by zone, volunteer pools, district reserves, incident rates in the simulation, and simulated citizen reports.
 
-## API
+## Code layout
+
+`index.html` and `app/` hold the UI, `lib/` the planner and AI (shared by browser and tests), `data/` the real-data snapshot, `scripts/` the data, backtest and eval builders, and `test/` the 10 tests.
+
+## Former API (now in-browser)
 
 - `GET /api/plan?mode=replay|live&cl=0.1&offline=<stationId>&noShow=0.3`
 - `GET /api/sim?key=` (response simulation), `GET /api/sitrep?key=&lang=en|te|hi|ur`

@@ -1,7 +1,22 @@
 /* global L */
+// Everything runs in the browser: the planner, the simulation, CAP alerts, the on-device AI that triages
+// citizen reports, and the AI agent (Claude, or a local model through Ollama). Static hosting is enough.
+import { plan as runPlan } from '../lib/planner.js';
+import { simulate } from '../lib/sim.js';
+import { capAlert } from '../lib/cap.js';
+import { CONFIRMS, simulatedFeed, triage } from '../lib/intake.js';
+import { EVENTS, fetchLive } from '../lib/weather.js';
+import { runAgent } from '../lib/ai/agent.js';
+import { makeClassifier, transformersEmbedder } from '../lib/ai/intake-ai.js';
+import { facts, templateSitrep } from '../lib/copilot.js';
+
+const TRANSFORMERS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
+const ANTHROPIC_SDK = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.3.0/+esm';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
-const state = { mode: 'replay', cl: 0.1, offline: '', noShow: 0, tab: 'timeline', plan: null, base: null, cap: null, sim: null, sitrep: null, lang: 'en' };
+const state = { mode: 'replay', cl: 0.1, offline: '', noShow: 0, tab: 'timeline', plan: null, base: null, cap: null, sim: null, lang: 'en',
+  forecasts: {}, reports: {}, approvals: new Map(), prevPairs: new Map(), classify: null, aiStatus: 'loading on-device AI…', agent: null,
+  provider: 'ollama', ollamaUrl: 'http://localhost:11434', ollamaModel: 'llama3.1', apiKey: '' };
 const KIND = { bundle: 'Sector', standby: 'EOC', counterpart: 'Counterpart', met: 'MET', drf: 'DRF', fire: 'Fire', volunteers: 'Volunteers', underpass: 'Underpass', alert: 'CAP alert', relief: 'Relief', musi: 'Musi' };
 const TIER = ['City counterpart', 'District counterpart', 'State reserve'];
 const fmt = (t) => t && new Date(`${t}:00Z`).toLocaleString('en-IN', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -146,10 +161,12 @@ const panels = {
   reports() {
     const p = state.plan;
     const rows = p.reports.slice().reverse().map((r) => `<tr><td>${esc(r.text)}${r.simulated ? ' <span class="badge">sim</span>' : ''}</td>
-      <td><span class="badge ${r.route === 'human' ? 'late' : r.route === 'ai_answered' ? 'ok' : ''}">${r.category.replace('_', ' ')}</span><div class="muted small">${r.route.replace('_', ' ')}</div></td>
+      <td><span class="badge ${r.route === 'human' ? 'late' : r.route === 'ai_answered' ? 'ok' : ''}">${r.category.replace('_', ' ')}</span><div class="muted small">${r.route.replace('_', ' ')} · ${r.by === 'ai' ? 'AI' : 'rules'}</div></td>
       <td>${r.sector == null ? '<span class="muted">unplaced</span>' : esc(area(p.sectors[r.sector].name))}${r.dupOf != null ? '<div class="muted small">duplicate</div>' : ''}</td></tr>`).join('');
     return `<div class="card"><h4>Citizen reports (WhatsApp / 1070)</h4>
-      <div class="muted small">Like Japan's SOCDA chatbot: each report is triaged, placed by area name and merged with duplicates. A rescue or medical report confirms flooding in that sector and re-plans it immediately. Life-threatening reports always go to a human.</div>
+      <div class="muted small">On-device AI (multilingual-e5 embeddings, runs in this browser, no data leaves it) reads English, Telugu, Hindi and Urdu, as Japan's SOCDA chatbot does on LINE.
+      Each report is triaged, placed by area name and merged with duplicates. A rescue or medical report confirms flooding in that sector and re-plans it at once. Life-threatening reports always go to a human; the AI can escalate a report, never downgrade one.</div>
+      <div class="small" style="margin-top:4px">AI status: <b>${esc(state.aiStatus)}</b></div>
       <div class="row" style="display:flex;gap:6px;margin-top:8px"><input type="text" id="rep" placeholder="e.g. Amberpet లో ఇంట్లో నీళ్ళు, కాపాడండి" style="flex:1;max-width:none">
       <button class="btn primary" id="send">Send</button></div>
       <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="sim">Simulate 10 reports</button><button class="btn" id="clr">Clear</button></div></div>
@@ -182,24 +199,47 @@ const panels = {
       <div class="muted small">So SurgeForce uses the forecast for <b>when</b> and terrain plus reports for <b>where</b>. A fitted EMOS-style calibration did not beat the raw ensemble with 15 events (it is re-fitted each season).</div>
       ${valueChart(c, pt, cl)}${reliabilityChart(c)}</div>
       <div class="card"><h4>What staging buys (response simulation)</h4>${simCard}</div>
+      ${state.base.intakeEval ? `<div class="card"><h4>AI triage vs keyword rules (held-out, 4 languages)</h4>
+        <table><tr><th></th><th class="n">Accuracy</th><th class="n">Life-threatening missed</th></tr>
+        <tr><td>Keyword rules</td><td class="n">${pct(state.base.intakeEval.keywords.accuracy)}</td><td class="n">${state.base.intakeEval.keywords.lifeThreateningMissed} / ${state.base.intakeEval.keywords.lifeThreateningTotal}</td></tr>
+        <tr><td><b>On-device AI</b> (${esc(state.base.intakeEval.model.split('/')[1])})</td><td class="n"><b>${pct(state.base.intakeEval.ai.accuracy)}</b></td><td class="n"><b>${state.base.intakeEval.ai.lifeThreateningMissed} / ${state.base.intakeEval.ai.lifeThreateningTotal}</b></td></tr></table>
+        <div class="muted small">${state.base.intakeEval.n} messages written differently from the AI's few-shot examples. In the app both run together, and a report flagged life-threatening by either goes to a human.</div></div>` : ''}
       ${v ? `<div class="card"><h4>This replay vs what fell</h4><table><tr><th>Day</th><th class="n">Forecast P(≥ 30 mm)</th><th class="n">ERA5 max</th></tr>
         ${v.days.map((d) => `<tr><td>${d.day}</td><td class="n">${pct(d.p)}</td><td class="n">${d.observedMaxMm} mm${d.event ? ' ✓' : ''}</td></tr>`).join('')}</table>
         <div class="muted small">ERA5 is a 25 km reanalysis that smooths cloudbursts; gauge peaks are higher.</div></div>` : ''}`;
   },
   copilot() {
-    const r = state.sitrep;
-    return `<div class="card"><h4>Situation report</h4><div class="muted small">Written from the plan's facts only. Uses Claude when the server has credentials; otherwise a fixed template. It never changes the plan.</div>
-      <div style="display:flex;gap:6px;margin-top:8px"><select id="lang">${[['en', 'English'], ['te', 'Telugu'], ['hi', 'Hindi'], ['ur', 'Urdu']].map(([v, n]) => `<option value="${v}" ${state.lang === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
-      <button class="btn primary" id="gen">Write sitrep</button></div>
-      ${r ? `<pre class="xml" style="white-space:pre-wrap">${esc(r.text)}</pre><div class="muted small">Source: ${esc(r.source)}${r.note ? ` · ${esc(r.note)}` : ''}</div>` : ''}</div>`;
+    const a = state.agent;
+    const presets = ['What is the situation and what should I approve first?', 'What changes if Uppal is confirmed flooded?',
+      'How much does staging help rescues?', 'Draft a public alert for the most exposed areas in Telugu'];
+    return `<div class="card"><h4>AI assistant (agent)</h4><div class="muted small">An LLM that answers by calling SurgeForce's tested tools: situation, area playbooks, what-if re-plans, the response simulation, reports and alert drafts.
+      Every number comes from a tool, and every call is shown below. It cannot approve or send anything. Few, single-purpose tools follow the DORA benchmark (NeurIPS 2026): agents fail mostly on choosing tools and filling their arguments.</div>
+      <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+        <label class="ctl"><input type="radio" name="prov" value="ollama" ${state.provider === 'ollama' ? 'checked' : ''}> Local model (Ollama, data stays on this machine)</label>
+        <label class="ctl"><input type="radio" name="prov" value="claude" ${state.provider === 'claude' ? 'checked' : ''}> Claude Opus 5.5</label></div>
+      ${state.provider === 'ollama' ? `<div style="display:flex;gap:6px;margin-top:6px"><input type="text" id="ourl" value="${esc(state.ollamaUrl)}" style="flex:1;max-width:none"><input type="text" id="omodel" value="${esc(state.ollamaModel)}" style="width:110px"></div>`
+        : `<div style="margin-top:6px"><input type="text" id="akey" placeholder="Anthropic API key (kept in this tab only)" value="${esc(state.apiKey)}" style="width:100%;max-width:none"></div>`}
+      <div style="display:flex;gap:6px;margin-top:6px"><select id="lang">${[['en', 'English'], ['te', 'Telugu'], ['hi', 'Hindi'], ['ur', 'Urdu']].map(([v, n]) => `<option value="${v}" ${state.lang === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      <input type="text" id="ask" placeholder="Ask the assistant…" style="flex:1;max-width:none"><button class="btn primary" id="go">Ask</button></div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${presets.map((q) => `<button class="btn" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>
+      ${a ? `<div class="card"><h4>${a.pending ? 'Thinking…' : `Answer · ${esc(a.model ?? '')}`}</h4>
+        ${a.error ? `<p style="color:var(--act)">${esc(a.error)}</p><pre class="xml" style="white-space:pre-wrap">${esc(templateSitrep(facts(state.plan, state.sim)))}</pre><div class="muted small">Template report shown instead.</div>` : ''}
+        ${a.text ? `<pre class="xml" style="white-space:pre-wrap">${esc(a.text)}</pre>` : ''}
+        ${a.steps?.length ? `<div class="small"><b>Tool calls</b>${a.steps.map((st) => `<div class="muted">→ ${esc(st.tool)}(${esc(JSON.stringify(st.args))})</div>`).join('')}</div>` : ''}</div>` : ''}`;
   },
   method() {
     const b = state.base;
-    return `<div class="card"><h4>Real data</h4><div class="small">
+    return `<div class="card"><h4>Where AI is used</h4><div class="small">
+      • <b>Forecasting:</b> 173-member ensemble including ECMWF's machine-learned AIFS model (51 AI members)<br>
+      • <b>Verification:</b> learned calibration and skill scores from two monsoons decide what the AI forecasts are trusted for<br>
+      • <b>Citizen reports:</b> multilingual embedding model in the browser, 91% vs 13% for keywords on held-out messages<br>
+      • <b>Optimisation:</b> min-cost-flow staging, counterpart matching, Monte Carlo response simulation<br>
+      • <b>Agent:</b> Claude Opus 5.5 or a local Llama 3.1 that answers by calling the planner's tools</div></div>
+      <div class="card"><h4>Real data</h4><div class="small">
       • ${b.stations.length} police stations, ${b.fire.length} fire stations, ${b.underpasses.length} road underpasses, the Musi and ${b.hand.waterways.length} nalas/streams from OpenStreetMap<br>
       • ${b.hand.cells.length} cells of 250 m with SRTM-based elevation (AWS Terrarium tiles) and HAND, height above nearest drainage (as in NOAA's National Water Model)<br>
       • Road times between stations from OSRM; in floods, speed falls with water depth (Pregnolato et al. 2017)<br>
-      • Live: 122-member ensemble (NCEP GEFS 31, ECMWF ENS 51, DWD ICON-EPS 40) via Open-Meteo<br>
+      • Live: 173-member ensemble (NCEP GEFS 31, ECMWF ENS 51, DWD ICON-EPS 40, ECMWF AIFS 51) via Open-Meteo<br>
       • Replay: what 6 global models forecast 1–3 days before 31 Aug 2024 (Open-Meteo Previous Runs)<br>
       • Backtest: 2024 + 2025 monsoons, 18 forecast members vs ERA5<br>
       • Musi: GloFAS discharge vs its 1990–2023 95th/99th percentile (${Math.round(b.musiThresholds.p95)} / ${Math.round(b.musiThresholds.p99)} m³/s)<br>
@@ -267,29 +307,67 @@ function drawPanel() {
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === state.tab));
   $('#panel').innerHTML = panels[state.tab]();
   if (state.tab === 'evidence' && !state.sim) {
-    fetch(`/api/sim?key=${state.plan.key}`).then((r) => r.json()).then((sim) => { state.sim = sim; if (state.tab === 'evidence') drawPanel(); });
+    setTimeout(() => { state.sim = simulate(state.base, state.forecast, state.raw); if (state.tab === 'evidence') drawPanel(); }, 30);
   }
 }
 
-// ---------- data ----------
+// ---------- data (all in the browser) ----------
+const cityMean = (series) => series[0].map((_, h) => +(series.slice(0, 9).reduce((a, x) => a + x[h], 0) / 9).toFixed(2));
+const getJSON = (f) => fetch(`data/${f}`).then((r) => { if (!r.ok) throw new Error(`${f}: ${r.status}`); return r.json(); });
+
+async function forecastFor(mode) {
+  const key = mode === 'live' ? 'live' : EVENTS[0].id, cached = state.forecasts[key];
+  if (cached && (mode !== 'live' || Date.now() - cached.at < 30 * 60e3)) return { key, forecast: cached.data };
+  const data = mode === 'live' ? await fetchLive() : await getJSON(`replay/${key}.json`);
+  state.forecasts[key] = { at: Date.now(), data };
+  return { key, forecast: data };
+}
+
 async function load() {
-  const qs = new URLSearchParams({ mode: state.mode, cl: state.cl, offline: state.offline, noShow: state.noShow });
   document.body.style.cursor = 'progress';
   try {
-    const res = await fetch(`/api/plan?${qs}`);
-    const plan = await res.json();
-    if (!res.ok) throw new Error(plan.error);
-    state.plan = plan; state.sim = null; state.sitrep = null;
+    const { key, forecast } = await forecastFor(state.mode);
+    const reports = state.reports[key] ?? [];
+    const ai = state.classify && reports.length ? await state.classify(reports.map((r) => r.text)) : null;
+    const triaged = triage(reports, state.base.stations, state.base.underpasses, ai);
+    const confirmed = new Set(triaged.filter((r) => CONFIRMS.has(r.category) && r.sector != null && r.dupOf == null).map((r) => r.sector));
+    const opts = { costLoss: state.cl, confirmed, offline: new Set(state.offline === '' ? [] : [Number(state.offline)]), noShow: state.noShow, prev: state.prevPairs.get(key) ?? new Map() };
+    const p = runPlan(state.base, state.base.hand, forecast, opts);
+    state.prevPairs.set(key, new Map(p.designated.map((x) => [x.to, x.from])));
+    state.forecast = forecast; state.raw = p; state.opts = opts; state.ai = ai; state.sim = null;
+    state.plan = { ...p, key, mode: state.mode, costLoss: state.cl, issuedAt: forecast.issuedAt ?? null, stale: null, reports: triaged,
+      forecast: { times: forecast.times, members: forecast.members.map((m) => m.name), musi: forecast.musi,
+        cityHourly: forecast.members.map((m) => cityMean(m.series)), observedHourly: forecast.observed ? cityMean(forecast.observed) : null },
+      actions: p.actions.map((a) => ({ ...a, approval: state.approvals.get(`${key}:${a.id}`) ?? null })) };
     drawKpis(); drawMap(); drawFan(); drawPanel();
   } catch (e) {
     $('#banner').hidden = false; $('#banner').textContent = `Could not build the plan: ${e.message}`;
   } finally { document.body.style.cursor = ''; }
 }
 
-async function approve(ids, decision) {
-  await fetch('/api/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: state.plan.key, ids, decision, by: 'Commander, GHMC EOC' }) });
+function approve(ids, decision) {
+  const entry = { decision, by: 'Commander, GHMC EOC', at: new Date().toISOString() };
+  ids.forEach((id) => state.approvals.set(`${state.plan.key}:${id}`, entry));
+  try { localStorage.setItem('surgeforce-audit', JSON.stringify([...state.approvals])); } catch { /* storage off: keep in memory */ }
   load();
+}
+
+async function askAgent(question) {
+  state.agent = { pending: true }; drawPanel();
+  try {
+    const provider = state.provider === 'claude'
+      ? { kind: 'claude', client: new (await import(ANTHROPIC_SDK)).default({ apiKey: state.apiKey, dangerouslyAllowBrowser: true }) }
+      : { kind: 'ollama', url: state.ollamaUrl.replace(/\/$/, ''), model: state.ollamaModel };
+    const ctx = { base: state.base, hand: state.base.hand, forecast: state.forecast, plan: state.raw, opts: state.opts,
+      reports: state.reports[state.plan.key] ?? [], ai: state.ai, sim: state.sim };
+    state.agent = await runAgent({ provider, question, ctx, lang: state.lang });
+    state.sim = ctx.sim ?? state.sim;
+  } catch (e) {
+    state.agent = { error: state.provider === 'ollama'
+      ? `Could not reach the local model (${e.message}). Start it with: OLLAMA_ORIGINS=${location.origin} ollama serve`
+      : `Claude request failed: ${e.message}` };
+  }
+  drawPanel();
 }
 
 document.addEventListener('click', async (e) => {
@@ -297,34 +375,62 @@ document.addEventListener('click', async (e) => {
   if (!t) return;
   if (t.parentElement.id === 'mode') { state.mode = t.dataset.v; setSeg('#mode', t); return load(); }
   if (t.parentElement.id === 'quant') { state.cl = Number(t.dataset.v); setSeg('#quant', t); return load(); }
-  if (t.id === 'gen') {
-    state.lang = $('#lang').value; t.disabled = true; t.textContent = 'Writing…';
-    state.sitrep = await (await fetch(`/api/sitrep?key=${state.plan.key}&lang=${state.lang}`)).json();
-    return drawPanel();
-  }
   if (t.dataset.t) { state.tab = t.dataset.t; return drawPanel(); }
   if (t.dataset.ok) return approve(t.dataset.ok.split(','), 'approved');
   if (t.dataset.no) return approve(t.dataset.no.split(','), 'rejected');
   if (t.dataset.approveStage) return approve(timelineItems(state.plan.actions).filter((a) => a.stage === t.dataset.approveStage && !a.approval).flatMap((a) => a.ids), 'approved');
   if (t.dataset.cap) {
-    const xml = await (await fetch(`/api/cap?key=${state.plan.key}&id=${t.dataset.cap}`)).text();
-    state.cap = { id: t.dataset.cap, xml }; state.tab = 'alerts'; return drawPanel();
+    const a = state.raw.actions.find((x) => x.id === t.dataset.cap);
+    state.cap = { id: a.id, xml: capAlert({ id: `surgeforce-${state.plan.key}-${a.id}`, sentAt: a.at, onsetAt: a.onsetAt, sectors: a.sectors.map((i) => state.raw.sectors[i]), cells: state.base.cells }) };
+    state.tab = 'alerts'; return drawPanel();
   }
+  if (t.dataset.q || t.id === 'go') {
+    readAgentInputs();
+    const q = t.dataset.q ?? $('#ask').value.trim();
+    if (q) return askAgent(q);
+    return;
+  }
+  const key = state.plan.key;
   if (t.id === 'send') {
-    const text = $('#rep').value.trim();
+    const text = $('#rep').value.trim().slice(0, 1000);
     if (!text) return;
-    await fetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, key: state.plan.key }) });
+    state.reports[key] = [...(state.reports[key] ?? []), { text, at: new Date().toISOString() }];
     return load();
   }
-  if (t.id === 'sim') { await fetch(`/api/reports/simulate?key=${state.plan.key}`, { method: 'POST' }); return load(); }
-  if (t.id === 'clr') { await fetch(`/api/reports?key=${state.plan.key}`, { method: 'DELETE' }); return load(); }
+  if (t.id === 'sim') { state.reports[key] = [...(state.reports[key] ?? []), ...simulatedFeed(state.raw.sectors)]; return load(); }
+  if (t.id === 'clr') { delete state.reports[key]; return load(); }
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'rep') $('#send').click(); });
+function readAgentInputs() {
+  if ($('#ourl')) { state.ollamaUrl = $('#ourl').value.trim(); state.ollamaModel = $('#omodel').value.trim(); }
+  if ($('#akey')) state.apiKey = $('#akey').value.trim();
+  if ($('#lang')) state.lang = $('#lang').value;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.name === 'prov') { readAgentInputs(); state.provider = e.target.value; drawPanel(); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'rep') $('#send').click();
+  if (e.key === 'Enter' && e.target.id === 'ask') $('#go').click();
+});
 const setSeg = (sel, btn) => document.querySelectorAll(`${sel} button`).forEach((b) => b.classList.toggle('on', b === btn));
 $('#offline').addEventListener('change', (e) => { state.offline = e.target.value; load(); });
 $('#noshow').addEventListener('input', (e) => { $('#noshowOut').textContent = pct(Number(e.target.value)); });
 $('#noshow').addEventListener('change', (e) => { state.noShow = Number(e.target.value); load(); });
 
-state.base = await (await fetch('/api/base')).json();
+const [base, hand, calibration, intakeEval] = await Promise.all([getJSON('base.json'), getJSON('hand.json'), getJSON('calibration.json'), getJSON('intake-eval.json').catch(() => null)]);
+state.base = { ...base, hand, calibration, intakeEval };
+try { state.approvals = new Map(JSON.parse(localStorage.getItem('surgeforce-audit') ?? '[]')); } catch { /* storage off */ }
 $('#offline').innerHTML += state.base.stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
 load();
+
+// on-device AI for report triage loads in the background; rules cover reports until it is ready
+(async () => {
+  try {
+    const tf = await import(TRANSFORMERS);
+    tf.env.allowLocalModels = false;
+    state.classify = await makeClassifier(await transformersEmbedder(tf));
+    state.aiStatus = 'on-device AI ready (multilingual-e5-small)';
+    if (state.reports[state.plan?.key]?.length) load();
+  } catch (e) { state.aiStatus = `on-device AI unavailable (${e.message.slice(0, 60)}); using rules`; }
+  if (state.tab === 'reports') drawPanel();
+})();

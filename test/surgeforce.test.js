@@ -123,3 +123,46 @@ test('two-stage plan on the real 31 Aug 2024 replay respects supply, floors, ter
   assert.match(text, /Chance of flood-level rain/);
   assert.match(text, /underpass closures/);
 });
+
+test('AI intake: nearest-prototype classifier, and AI can escalate but never downgrade a life-threatening report', async () => {
+  const { makeClassifier, EXAMPLES } = await import('../lib/ai/intake-ai.js');
+  const cats = Object.keys(EXAMPLES);
+  // stand-in embedder: one-hot by which category's example text the input contains
+  const embed = async (texts) => texts.map((t) => cats.map((c) => (EXAMPLES[c].some((ex) => t.includes(ex.slice(0, 12))) ? 1 : 0)));
+  const classify = await makeClassifier(embed);
+  const [r] = await classify([EXAMPLES.medical[0]]);
+  assert.equal(r.category, 'medical');
+
+  const stations = [{ name: 'Uppal Police Station' }];
+  const reports = [{ text: 'Uppal family trapped, rescue' }, { text: 'Uppal water up to the knees near the temple' }];
+  const out = triage(reports, stations, [], [{ category: 'info_request' }, { category: 'rescue_needed' }]);
+  assert.equal(out[0].category, 'rescue_needed'); // rules said rescue: AI's "info" cannot downgrade it
+  assert.equal(out[0].route, 'human');
+  assert.equal(out[1].category, 'rescue_needed'); // rules found nothing, AI escalated
+  assert.equal(out[1].by, 'ai');
+});
+
+test('agent loop calls planner tools, repairs malformed arguments, and answers from tool results', async () => {
+  const { runAgent } = await import('../lib/ai/agent.js');
+  const base = load('base.json'), hand = load('hand.json'), fc = load('replay/2024-09-01.json');
+  const opts = { costLoss: 0.1 };
+  const ctx = { base, hand, forecast: fc, opts, plan: plan(base, hand, fc, opts), reports: [] };
+  const script = [ // what a small local model actually sent us: a list as a string
+    { tool_calls: [{ function: { name: 'what_if_flooded', arguments: { areas: "['Uppal']" } } }] },
+    { content: 'Confirming Uppal activates its counterparts.' },
+  ];
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    seen.push(JSON.parse(init.body));
+    return { ok: true, json: async () => ({ message: { role: 'assistant', content: '', ...script[seen.length - 1] } }) };
+  };
+  try {
+    const out = await runAgent({ provider: { kind: 'ollama', url: 'http://x', model: 'test' }, question: 'What if Uppal floods?', ctx });
+    assert.equal(out.text, 'Confirming Uppal activates its counterparts.');
+    assert.equal(out.steps[0].tool, 'what_if_flooded');
+    assert.deepEqual(out.steps[0].result.unknownAreas, []);
+    assert.ok(out.steps[0].result.activatedCounterparts.length > 0);
+    assert.equal(seen[1].messages.at(-1).role, 'tool'); // the tool result went back to the model
+  } finally { globalThis.fetch = realFetch; }
+});
