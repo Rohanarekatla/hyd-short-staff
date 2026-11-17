@@ -5,6 +5,9 @@ import { capAlert } from '../lib/cap.js';
 import { triage } from '../lib/intake.js';
 import { minCostFlow } from '../lib/mcf.js';
 import { pairCounterparts, plan, SUPPLY } from '../lib/planner.js';
+import { brier, economicValue, fitLogistic, predict, rocArea } from '../lib/calibrate.js';
+import { simulate, speedAtDepth } from '../lib/sim.js';
+import { facts, templateSitrep } from '../lib/copilot.js';
 import { severity } from '../lib/risk.js';
 
 const load = (p) => JSON.parse(readFileSync(new URL(`../data/${p}`, import.meta.url)));
@@ -67,26 +70,56 @@ test('CAP alert has four languages and a closed polygon', () => {
   assert.ok(xml.includes('<status>Exercise</status>'));
 });
 
-test('full plan on the real 31 Aug 2024 replay respects supply, floors and stress tests', () => {
-  const base = load('base.json'), fc = load('replay/2024-09-01.json');
-  const p = plan(base, fc, { q: 0.8 });
-  assert.ok(p.metrics.sectorsAtRisk > 0 && p.actions.length > 0);
+test('calibration maths: logistic fit ranks correctly, Brier and Richardson value behave', () => {
+  const X = [], y = [];
+  for (let i = 0; i < 200; i++) { const f = i / 200; X.push([1, f]); y.push(f > 0.6 ? 1 : 0); }
+  const w = fitLogistic(X, y);
+  assert.ok(predict(w, [1, 0.9]) > 0.8 && predict(w, [1, 0.1]) < 0.2);
+  assert.equal(rocArea([0.1, 0.9], [0, 1]), 1);
+  assert.equal(brier([1, 0], [1, 0]), 0);
+  assert.ok(Math.abs(economicValue([1, 0, 0, 1], [1, 0, 0, 1], 0.2) - 1) < 1e-9); // perfect forecast = full value
+  assert.ok(Math.abs(economicValue([0.25, 0.25, 0.25, 0.25], [1, 0, 0, 0], 0.2)) < 1e-9); // climatology = no value
+});
+
+test('road speed falls with water depth and stops at 30 cm', () => {
+  assert.ok(Math.abs(speedAtDepth(0) - 86.9448) < 1e-9);
+  assert.ok(speedAtDepth(150) < speedAtDepth(50));
+  assert.equal(speedAtDepth(300), 0);
+});
+
+test('two-stage plan on the real 31 Aug 2024 replay respects supply, floors, terrain and reports', () => {
+  const base = load('base.json'), hand = load('hand.json'), fc = load('replay/2024-09-01.json');
+  const p = plan(base, hand, fc, { costLoss: 0.1 });
+  assert.ok(p.city.onset != null && p.actions.length > 0);
   for (const [kind, t] of Object.entries(p.teams)) {
     const sent = new Map();
     t.moves.forEach((m) => sent.set(m.depot, (sent.get(m.depot) ?? 0) + m.teams));
     sent.forEach((n, d) => assert.ok(n <= p.depots[kind][d].count, `${kind} depot ${d} over-sent`));
   }
+  assert.equal(p.pairs.length, 0); // nothing confirmed yet: counterparts are designated, not active
+  assert.ok(p.designated.length > 0 && p.designated.every((x) => p.donors[x.from].dry));
+  // more exposed terrain gets at least as much staged as the least exposed sector
+  const byVuln = [...p.sectors].sort((a, b) => b.vulnerability - a.vulnerability);
+  assert.ok(byVuln[0].need.met >= byVuln.at(-1).need.met);
+
+  const conf = plan(base, hand, fc, { costLoss: 0.1, confirmed: new Set([byVuln[0].id]) });
+  assert.ok(conf.pairs.every((x) => x.to === byVuln[0].id));
+  assert.ok(conf.sectors[byVuln[0].id].need.met >= p.sectors[byVuln[0].id].need.met);
   const lent = new Map();
-  p.pairs.forEach((x) => lent.set(x.from, (lent.get(x.from) ?? 0) + x.people));
+  conf.pairs.forEach((x) => lent.set(x.from, (lent.get(x.from) ?? 0) + x.people));
   lent.forEach((n, j) => {
-    const d = p.donors[j];
-    assert.ok(d.dry, `${d.name} lent while wet`);
+    const d = conf.donors[j];
     if (d.tier === 0) assert.ok(d.avail - n >= Math.ceil(SUPPLY.floor * d.avail), `${d.name} below floor`);
   });
-  const closures = p.actions.filter((a) => a.kind === 'underpass');
-  assert.ok(closures.every((a) => p.sectors[a.sector].onset != null));
 
-  const stressed = plan(base, fc, { q: 0.8, noShow: 0.5, offline: new Set([0]) });
+  const stressed = plan(base, hand, fc, { costLoss: 0.1, noShow: 0.5, offline: new Set([1]) });
   assert.ok(stressed.metrics.volunteers.sent <= p.metrics.volunteers.sent);
-  assert.ok(!stressed.pairs.some((x) => x.from === 0)); // an offline station lends nobody
+  assert.ok(!stressed.designated.some((x) => x.from === 1)); // an offline station lends nobody
+
+  // the simulation should show staging helps, and the copilot template should carry the key facts
+  const sim = simulate(base, fc, p, { runs: 40 });
+  assert.ok(sim.surgeforce.drf.within30 >= sim.reactive.drf.within30);
+  const text = templateSitrep(facts(p, sim));
+  assert.match(text, /Chance of flood-level rain/);
+  assert.match(text, /underpass closures/);
 });

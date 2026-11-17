@@ -31,39 +31,83 @@ Most teams will build a flood-risk map, a chatbot or a dashboard. Those show whe
 - **Gauges**: TSDPS runs 1,044 AWS statewide and planned 166 inside GHMC ([Hans India](https://assets.thehansindia.com/posts/index/Telangana/2018-07-14/166-Automatic-Weather-Stations-to-be-set-up-in-Hyderabad/398061)). There is no public live feed yet, which is a data ask for the organisers.
 - **Police**: state vacancies above 20% for a decade, so we apply 22% to every station's strength.
 
+## Round 2: we measured the forecasts, and it changed the design
+
+Before trusting forecasts with staffing, we backtested them. Over the full 2024 and 2025 monsoons (June–October), we compared what six global models forecast 1–3 days ahead (18 members) with ERA5, at 9 points across the city ([scripts/backtest.js](scripts/backtest.js)).
+
+| Question | Events | Brier skill | ROC area | Economic value at C/L = 0.1 |
+|---|---|---|---|---|
+| Heavy rain (≥ 30 mm/day) **anywhere in Hyderabad** today? (when) | 15 / 306 days | **0.19** | **0.81** | **0.30** |
+| Heavy rain **at this 25 km point**? (where) | 51 / 2,754 | 0.01 | 0.71 | **−0.17** |
+
+- **The city-level forecast is reliable.** Days forecast at 25% verified at 27%; days forecast at 48% verified at 43%.
+- **The point-level forecast is worse than useless for deciding where.** Its economic value is negative at most cost ratios ([Richardson's cost-loss model](https://www.ecmwf.int/sites/default/files/elibrary/2014/17333-decisions-decisions.pdf)).
+- **Calibration didn't help yet.** We tried an EMOS-style logistic calibration ([Scheuerer 2014](https://arxiv.org/pdf/1302.0893); Wilks & Hamill). With only 15 events, it did not beat the raw ensemble on held-out seasons, so the app uses the raw probability. The fit re-runs each season as events accumulate.
+- **Rain is local.** On city heavy-rain days, only 38% of points got ≥ 30 mm.
+
+**Design consequence: forecast for WHEN, terrain and reports for WHERE.** This is a two-stage plan, the structure of [Rawls & Turnquist (2010)](https://ideas.repec.org/a/eee/transb/v44y2010i4p521-534.html)'s pre-positioning model:
+
+1. **Stage 1, before the rain.** The city-level probability triggers activation when it reaches C/L.
+   - Teams stage forward in proportion to terrain exposure. Each sector's expected need is its if-hit need × the 38% hit share.
+   - Every exposed station gets a pre-designated counterpart, as Japan began doing for the Nankai Trough in 2025.
+   - Low-lying underpasses close.
+2. **Stage 2, when a citizen report confirms a sector.** Its counterpart activates, staged teams commit to it, and it gets an immediate CAP alert.
+
+### New technologies in the build
+
+| Technology | What it does here | Source |
+|---|---|---|
+| **HAND terrain model** | Height Above Nearest Drainage on a 250 m grid (7,021 cells), from SRTM-based Terrarium tiles and 260 OSM nalas/streams. D8 flow routing to a drain or a closed depression; inundation by stage at severity 1/2/3. Replaces the crude "low-lying" flag. | [NOAA HAND factsheet](https://www.weather.gov/media/owp/operations/HAND_factsheet.pdf), [GRASS r.hand](https://grass.osgeo.org/grass84/manuals/addons/r.hand.html) |
+| **Cost–loss decision rule** | The header sets the ratio of false-alarm cost to miss cost (1:20 to 1:3). The system acts when P ≥ C/L and plans to the (1 − C/L) quantile. Replaces the arbitrary P80. | [Richardson 2000 / ECMWF](https://www.ecmwf.int/sites/default/files/elibrary/2014/17333-decisions-decisions.pdf) |
+| **Forecast verification** | Brier skill, ROC area, reliability diagram and relative economic value, shown live in the Evidence tab | [ensembleMOS](https://cran.rstudio.com/web/packages/ensembleMOS/refman/ensembleMOS.html) |
+| **Depth–disruption travel** | Vehicle speed falls with standing water (0–300 mm; impassable at 30 cm). Travel ×1.12 / 1.78 / 5.95 at severity 1/2/3. | Pregnolato et al. 2017, Transp. Res. D 55:67–81 ([as used in the Wuhan study](https://www.frontiersin.org/articles/10.3389/fenvs.2022.1056854)) |
+| **Monte Carlo + discrete-event response simulation** | 134 storms drawn from the real forecast members, random hit sectors, terrain-driven incidents, nearest-free-team dispatch | [WSC 2005](https://www.informs-sim.org/wsc05papers/104.pdf) |
+| **Claude copilot** | Writes situation reports from the plan's facts in English, Telugu, Hindi or Urdu (Claude Opus 5.5, optional; template fallback) | `lib/copilot.js` |
+
+**Result:** in the replay, staging by terrain exposure lifts rescues reached within 30 minutes from **83% to 96%**, and cuts the 90th-percentile rescue response from **43 to 30 minutes** against teams waiting at zone depots. Incident rates are synthetic, so read this as the size of the effect, not a field number.
+
+### How this compares to what Indian cities run
+
+- **[Mumbai iFLOWS](https://pib.gov.in/PressReleasePage.aspx?PRID=1631096)** (MoES, 2020) and **Chennai C-FLOWS**: inundation forecasts up to 72 h, with a decision-support module.
+- **[Bengaluru KSNDMC](https://ksndmc.org/Content/Documents/General/Urban%20Flood%20Monitoring.pdf)**: 100 telemetric rain gauges and drain water-level sensors at 15-minute intervals, with yellow/orange/red alerts. Reporting says it is "good for rescue, not prevention" ([Citizen Matters](https://citizenmatters.in/?p=87431)).
+- **[Google urban flash-flood forecasting](https://research.google/blog/protecting-cities-with-ai-driven-flash-flood-forecasting/)** (March 2026): trained on 2.6 million floods extracted from news by Gemini ("Groundsource"), on about 20 km² cells, up to 24 h ahead.
+
+None of these decides **who moves where, and when**. SurgeForce sits on top of them: any of these risk feeds can replace the forecast input.
+
 ## What makes it realistic
 
-1. **The forecasts are real.** Live mode pulls 122 ensemble members (NCEP GEFS, ECMWF ENS and DWD ICON-EPS). Replay uses what six global models **actually predicted 1–3 days before** 31 Aug 2024 (Open-Meteo Previous Runs API). Totals ranged from 20 to 336 mm: that spread is real uncertainty the commander faced.
-2. **Plan to a quantile, not the average.** At P80 the plan covers 4 in 5 forecast futures. The P50, P80 and P95 buttons show the cost of caution in officers and teams.
-3. **Real geography**: OSM police and fire stations, underpasses and the Musi; Copernicus DEM elevation per km²; OSRM road times; GloFAS Musi discharge against its 34-year climatology. In the replay, the Musi reached 490 m³/s against a 99th percentile of 118.
-4. **It checks itself.** Replay compares flagged sectors with what ERA5 says actually fell.
-5. **It escalates the way it would in real life.** In the 2024 replay the storm covered all of Telangana: every city station and all 7 neighbouring districts were wet. So the counterpart tier fell through to TSSP reserve companies. At P95, even the reserve runs 6 officers short and 56 fire crews are missing: the plan shows exactly where the state should ask for NDRF, which takes about 5.5 h to arrive.
+1. **Real forecasts.** Live mode uses 122 ensemble members. Replay uses what models actually predicted 1–3 days before 31 Aug 2024.
+2. **Measured skill.** It uses the forecast only where the backtest shows value.
+3. **Real geography.** OSM stations, underpasses, nalas and the Musi; SRTM-based terrain; OSRM roads; GloFAS discharge against its 34-year climatology. The Musi reached 490 m³/s in the replay, against a 99th percentile of 118.
+4. **It escalates realistically.** In the 2024 statewide storm, all 7 neighbouring districts were wet too. Counterparts fall through to the TSSP reserve, and DRF needs an NDRF request with a 5.5 h lead time.
 
 ## More ideas (roadmap, in priority order)
 
-1. **TSDPS gauge nowcast**: replace the 25 km forecast with 1,044 real gauges for the next 0–3 h (like Taiwan Civil IoT).
-2. **Citizen asset registry** (the Kerala lesson): pre-register boats, tractors, JCBs and trained swimmers, and dispatch them like teams.
-3. **Reservoir release coupling**: pull Himayat Sagar and Osman Sagar gate-opening plans from HMWSSB into the Musi-bank evacuation timing.
-4. **Pre-signed mutual-aid agreements** (EMAC-style): district-to-district MoUs on cost and liability, so a counterpart request is one click.
-5. **Navigation warnings** (Korea): push underpass closures to Google Maps / Mappls traffic layers.
-6. **Learn the rates**: fit the people-per-cell planning rates on GHMC 1070 complaint logs from past monsoons.
-7. **WhatsApp bot**: officers accept or decline orders. Declines re-solve the plan, closing the no-show loop.
+1. **Hyderabad "Groundsource"**: use Claude to extract flood locations and dates from ten years of Telangana Today, Deccan Chronicle and Siasat archives, as Google did with Gemini. That gives the local ground truth needed to validate HAND exposure and to learn "where".
+2. **Radar nowcasting**: IMD's Hyderabad Doppler radar plus an open nowcasting model ([NowcastNet, Nature 2023](https://www.nature.com/articles/s41586-023-06184-4)) for the 0–3 h "where" that global models can't give.
+3. **TSDPS gauges and drain sensors**: 1,044 AWS statewide plus KSNDMC-style water-level sensors in the nalas, to confirm sectors automatically (stage 2 without waiting for a citizen).
+4. **Citizen asset registry** (Kerala 2018: 669 fishing boats rescued about 65,000 people): pre-register boats, tractors and swimmers as typed teams.
+5. **Reservoir release coupling**: Himayat Sagar and Osman Sagar gate plans from HMWSSB into the Musi-bank timing.
+6. **Pre-signed mutual-aid MoUs** (EMAC-style), so activating a counterpart is one click.
+7. **Navigation warnings** (Korea): push underpass closures to map apps.
+8. **WhatsApp bot for officers**: accepting or declining orders closes the no-show loop.
 
 ## Five-minute demo
 
-1. **Hook (30 s)**: "On 31 Aug 2024 the models disagreed fivefold about Hyderabad's rain. Who should have moved, and when?"
-2. **Fan chart (45 s)**: 18 real forecasts and what actually fell. Switch P50 → P80 → P95: sectors go from 10 to 49 (all of them), and the officers needed from outside go from 0 to 42 to 156.
-3. **Timeline (90 s)**: Watch, then a CAP alert in 4 languages 6 h ahead, then per-sector bundles: officers from the counterpart, METs, DRF, and underpass closures 30 min before onset. Approve a stage.
-4. **Counterparts (45 s)**: show that districts were wet too, so the plan escalates to TSSP. On P50 the dry districts lend instead.
-5. **Ground truth (45 s)**: send a Telugu WhatsApp report, "Amberpet లో మమ్మల్ని కాపాడండి". The sector turns confirmed and the plan re-solves.
-6. **Close (30 s)**: every move has a human sign-off and an audit line. It runs on free public data today.
+1. **Hook (30 s)**: "We measured it. Global forecasts can tell Hyderabad *when*, but not *where*. So we built staffing around that."
+2. **Evidence tab (60 s)**: the backtest table and value curve (green city line above zero, red point line below), then the simulation: 83% → 96% of rescues within 30 minutes.
+3. **Map (45 s)**: HAND terrain shows where water collects, with nalas and underpasses. Click Uppal for its playbook: what it gets if hit, what's staged now, and who its counterpart is.
+4. **Cost–loss (30 s)**: switch 1:20 → 1:3 and watch staging and counterparts shrink. "The commander sets how much a false alarm costs; the maths does the rest."
+5. **Stage 2 (60 s)**: send a Telugu report, "Uppal లో మమ్మల్ని కాపాడండి". Uppal turns red, its counterpart activates, a confirmed-area CAP alert appears, and the timeline updates. Approve.
+6. **Copilot and close (45 s)**: generate the sitrep in Telugu. "Every number came from the plan; every move has a human sign-off."
 
 ## Questions judges will ask
 
 | Question | Answer |
 |---|---|
 | Where do rosters come from? | Station strength is synthetic and labelled so. The supply interface is one function: replace it with the CCTNS / HRMS duty roster. |
-| A 25 km forecast for a city? | Yes, which is exactly why we plan on probabilities and quantiles, not a single map. TSDPS gauges are roadmap item 1. |
+| A 25 km forecast for a city? | We measured exactly that: it has value for *when* (ROC 0.81) and none for *where*. So *where* comes from HAND terrain and citizen reports, and radar/gauges are the roadmap. |
 | Isn't the severity model made up? | The triggers are IMD's rain categories and GHMC's stated drain capacity. The rates are editable assumptions, shown in the UI, and meant to be calibrated on 1070 logs. |
 | Why counterparts, not optimal many-to-many? | Japan learned in Noto that ten small groups who don't know the ground underperform. One donor per sector is reviewable, keeps command lines, and persists. |
+| Why not just train an ML flood model? | With 15 heavy-rain days in two seasons, a fitted calibration already overfit. We show the evidence instead of claiming accuracy; the Groundsource roadmap item builds the labels a real model needs. |
 | What if the AI is wrong? | Nothing moves without sign-off; CAP status stays "Exercise" until approved; life-threatening reports always route to a human. |

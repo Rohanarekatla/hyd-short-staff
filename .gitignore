@@ -5,3 +5,4 @@ data/live-cache.json
 data/base.prev.json
 data/fetch.log
 .DS_Store
+*.log
