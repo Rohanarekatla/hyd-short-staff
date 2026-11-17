@@ -1,0 +1,7 @@
+node_modules/
+.claude/
+data/audit.jsonl
+data/live-cache.json
+data/base.prev.json
+data/fetch.log
+.DS_Store

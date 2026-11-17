@@ -1,0 +1,13 @@
+{
+  "name": "surgeforce",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Forecast-driven disaster staffing for Hyderabad: counterpart pairing, underpass guard, staged timeline.",
+  "type": "module",
+  "engines": { "node": ">=21" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "fetch-data": "node scripts/fetch-data.js"
+  }
+}

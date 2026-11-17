@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SurgeForce · Hyderabad</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><b>SurgeForce</b><span>Hyderabad flood staffing command</span></div>
+    <div class="controls">
+      <div class="seg" id="mode">
+        <button data-v="replay" class="on">Replay 31 Aug 2024</button>
+        <button data-v="live">Live forecast</button>
+      </div>
+      <div class="seg" id="quant" title="Plan for this share of forecast futures">
+        <button data-v="0.5">P50</button><button data-v="0.8" class="on">P80</button><button data-v="0.95">P95</button>
+      </div>
+      <label class="ctl">Station offline <select id="offline"><option value="">none</option></select></label>
+      <label class="ctl">Volunteer no-show <input id="noshow" type="range" min="0" max="0.6" step="0.1" value="0"><output id="noshowOut">0%</output></label>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <section class="kpis" id="kpis"></section>
+  <main>
+    <div class="left">
+      <div id="map"></div>
+      <div class="fan"><div class="fanhead"><b>City rainfall: every forecast member</b><span id="fanNote"></span></div><svg id="fan" viewBox="0 0 600 150" preserveAspectRatio="none"></svg></div>
+    </div>
+    <aside>
+      <nav id="tabs">
+        <button data-t="timeline" class="on">Timeline</button><button data-t="pairs">Counterparts</button>
+        <button data-t="teams">Teams</button><button data-t="reports">Reports</button>
+        <button data-t="alerts">Alerts</button><button data-t="method">Method</button>
+      </nav>
+      <div id="panel" class="panel"></div>
+    </aside>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
