@@ -63,9 +63,15 @@ main { flex: 1 1 0; display: grid; grid-template-columns: minmax(0, 1fr) 530px; 
 .legend .lh { font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-top: 4px; }
 .legend .lh:first-child { margin-top: 0; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; box-shadow: 0 0 8px currentColor; }
-.fan { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 160px; padding: 8px 14px; border-radius: 12px; }
+.fan { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 190px; padding: 8px 14px; border-radius: 12px; }
 .fanhead { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11.5px; } .fanhead b { color: var(--text); font-weight: 600; }
-#fan { width: 100%; height: 128px; }
+#fan { width: 100%; height: 150px; display: block; margin-top: 4px; }
+#fan .ax { fill: #8a9db1; font: 10.5px Inter, sans-serif; }
+#fanNote { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.lg { display: inline-flex; align-items: center; gap: 6px; }
+.lg i { display: inline-block; width: 16px; height: 0; border-top: 2px solid #4fb3ff; }
+.lg i.band { height: 10px; border: 0; border-radius: 2px; background: rgba(79,179,255,.3); } .lg i.obs { border-color: #fff; }
+.fantip { position: absolute; top: 30px; padding: 7px 10px; border-radius: 8px; background: rgba(8,13,20,.95); border: 1px solid var(--line2); font-size: 11.5px; line-height: 1.5; pointer-events: none; white-space: nowrap; box-shadow: 0 8px 20px rgba(0,0,0,.4); }
 
 /* side panel */
 aside { display: flex; flex-direction: column; min-height: 0; border-radius: 14px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.45); }
@@ -111,7 +117,7 @@ ul.lines { margin: 4px 0 0; padding-left: 16px; } ul.lines li { margin: 2px 0; }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1) opacity(.75); }
 .maplibregl-ctrl-attrib { background: rgba(5,8,13,.6) !important; color: var(--muted); font-size: 10px; } .maplibregl-ctrl-attrib a { color: var(--muted); }
 .maplibregl-ctrl-top-right { top: 0; right: 0; }
-.maplibregl-ctrl-bottom-right { bottom: 176px; }
+.maplibregl-ctrl-bottom-right { bottom: 206px; }
 
 @media (max-width: 1200px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 1100px) {

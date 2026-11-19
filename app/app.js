@@ -126,24 +126,48 @@ function sectorPopup(i) {
 }
 const addH = (t0, h) => new Date(Date.parse(`${t0}:00Z`) + h * 3600e3).toISOString().slice(0, 16);
 
-// ---------- fan chart ----------
+// ---------- rainfall chart: ensemble spread (10–90% band), median, and what actually fell ----------
 function drawFan() {
   const f = state.plan.forecast, svg = $('#fan');
+  const W = svg.clientWidth || 600, H = svg.clientHeight || 140, L = 46, R = 12, T = 8, B = 20;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); // real pixels: text and lines are never stretched
   const cum = (xs) => xs.reduce((a, v, i) => (a.push((a[i - 1] ?? 0) + v), a), []);
-  const series = f.cityHourly.map(cum), obs = f.observedHourly ? cum(f.observedHourly) : null;
-  const H = f.times.length, max = Math.max(10, ...series.map((s) => s.at(-1)), ...(obs ? [obs.at(-1)] : []));
-  const x = (h) => (h / (H - 1)) * 590 + 5, y = (v) => 140 - (v / max) * 130;
-  const path = (s) => s.map((v, h) => `${h ? 'L' : 'M'}${x(h).toFixed(1)},${y(v).toFixed(1)}`).join('');
-  const days = f.times.map((t, h) => (t.endsWith('T00:00') ? h : -1)).filter((h) => h > 0);
-  svg.innerHTML = days.map((h) => `<line x1="${x(h)}" x2="${x(h)}" y1="5" y2="140" stroke="#1f2c3a"/>`
-    + `<text x="${x(h) + 3}" y="14" fill="#8295a8" font-size="9">${fmt(f.times[h]).split(',')[0]}</text>`).join('')
-    + series.map((s) => `<path d="${path(s)}" fill="none" stroke="#4fb3ff" stroke-opacity="${Math.max(0.12, 1.5 / Math.sqrt(series.length))}" stroke-width="1.2"/>`).join('')
-    + (obs ? `<path d="${path(obs)}" fill="none" stroke="#ffffff" stroke-width="2.2"/>` : '')
-    + `<text x="8" y="${y(max) + 10}" fill="#8295a8" font-size="9">${Math.round(max)} mm</text>`;
+  const series = f.cityHourly.map(cum), obs = f.observedHourly ? cum(f.observedHourly) : null, N = f.times.length;
+  const q = (h, p) => { const v = series.map((s) => s[h]).sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.round(p * (v.length - 1)))]; };
+  const p10 = [], p50 = [], p90 = [];
+  for (let h = 0; h < N; h++) { p10.push(q(h, 0.1)); p50.push(q(h, 0.5)); p90.push(q(h, 0.9)); }
+  const top = Math.max(10, ...series.map((s) => s.at(-1)), ...(obs ? [obs.at(-1)] : []));
+  const step = [5, 10, 20, 25, 50, 100, 200].find((s) => top / s <= 5) ?? 500, max = Math.ceil(top / step) * step;
+  const x = (h) => L + (h / (N - 1)) * (W - L - R), y = (v) => H - B - (v / max) * (H - T - B);
+  const line = (s) => s.map((v, h) => `${h ? 'L' : 'M'}${x(h).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const band = `${line(p90)}L${p10.map((v, h) => [x(h), y(v)]).reverse().map(([a, b]) => `${a.toFixed(1)},${b.toFixed(1)}`).join('L')}Z`;
+  const grid = [];
+  for (let v = 0; v <= max; v += step) grid.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#1c2a3a"/><text x="${L - 6}" y="${y(v) + 3.5}" text-anchor="end" class="ax">${v} mm</text>`);
+  const days = f.times.map((t, h) => (t.endsWith('T00:00') ? h : -1)).filter((h) => h >= 0);
+  const dayTicks = days.map((h) => `<line x1="${x(h)}" x2="${x(h)}" y1="${T}" y2="${H - B}" stroke="#22344a" stroke-dasharray="2 3"/>`
+    + `<text x="${x(h) + 4}" y="${H - 6}" class="ax">${fmt(f.times[h]).split(', ').slice(0, 2).join(' ')}</text>`).join('');
+  svg.innerHTML = grid.join('') + dayTicks
+    + series.map((s) => `<path d="${line(s)}" fill="none" stroke="#4fb3ff" stroke-opacity=".14" stroke-width="1"/>`).join('')
+    + `<path d="${band}" fill="#4fb3ff" fill-opacity=".16"/>`
+    + `<path d="${line(p50)}" fill="none" stroke="#4fb3ff" stroke-width="2"/>`
+    + (obs ? `<path d="${line(obs)}" fill="none" stroke="#ffffff" stroke-width="2"/>` : '')
+    + `<line id="fanX" y1="${T}" y2="${H - B}" stroke="#8a9db1" stroke-width="1" visibility="hidden"/>`
+    + `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="fanHit"/>`;
+  const tip = $('#fanTip'), cross = $('#fanX');
+  $('#fanHit').onmousemove = (e) => {
+    const h = Math.max(0, Math.min(N - 1, Math.round(((e.offsetX - L) / (W - L - R)) * (N - 1))));
+    cross.setAttribute('x1', x(h)); cross.setAttribute('x2', x(h)); cross.setAttribute('visibility', 'visible');
+    tip.innerHTML = `<b>${fmt(f.times[h])}</b><br>Median forecast <b>${Math.round(p50[h])} mm</b><br>Likely range ${Math.round(p10[h])}–${Math.round(p90[h])} mm`
+      + (obs ? `<br>Actually fell <b>${Math.round(obs[h])} mm</b>` : '');
+    tip.hidden = false; tip.style.left = `${Math.min(x(h) + 26, W - 190)}px`;
+  };
+  $('#fanHit').onmouseleave = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); };
   const finals = series.map((s) => s.at(-1)).sort((a, b) => a - b);
-  $('#fanNote').textContent = `${f.members.length} members · 72 h city total: ${Math.round(finals[0])}–${Math.round(finals.at(-1))} mm`
-    + (obs ? ` · white = what actually fell (ERA5): ${Math.round(obs.at(-1))} mm` : '');
+  $('#fanNote').innerHTML = `<span class="lg"><i class="band"></i>likely range (10–90% of ${f.members.length} forecasts)</span>`
+    + `<span class="lg"><i class="med"></i>median</span>` + (obs ? `<span class="lg"><i class="obs"></i>actually fell (ERA5): ${Math.round(obs.at(-1))} mm</span>` : '')
+    + `<span class="lg muted">72 h total: ${Math.round(finals[0])}–${Math.round(finals.at(-1))} mm</span>`;
 }
+new ResizeObserver(() => state.plan && drawFan()).observe($('#fan'));
 
 // ---------- KPIs ----------
 function drawKpis() {
