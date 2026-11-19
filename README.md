@@ -2,7 +2,7 @@
 
 AI command centre for flood staffing in Hyderabad (CipherCop 2026, Track 02). It decides, before the rain, which officers, teams and volunteers go where, and when, with a human commander approving every move.
 
-**Live demo:** https://rohanarekatla.github.io/hyd-short-staff/ · **Team overview:** [OVERVIEW.md](OVERVIEW.md) · **Research:** [RESEARCH.md](RESEARCH.md) · **For AI assistants:** [AGENTS.md](AGENTS.md)
+**Live demo:** https://rohanarekatla.github.io/hyd-short-staff/ · **Team overview:** [OVERVIEW.md](OVERVIEW.md) · **Research:** [RESEARCH.md](RESEARCH.md) · **Ideas and roadmap:** [IDEAS.md](IDEAS.md) · **For AI assistants:** [AGENTS.md](AGENTS.md)
 
 Where AI does the work:
 
@@ -11,6 +11,17 @@ Where AI does the work:
 - **Reading reports:** multilingual embeddings in the browser. 91% accuracy on held-out English, Telugu, Hindi and Urdu messages, vs 13% for keyword rules.
 - **Optimisation and proof:** an optimiser and a Monte Carlo simulation (rescues within 30 minutes go from 83% to 96%).
 - **Talking to the commander:** an agent (Claude Opus 5.5, or local Llama 3.1) that answers only by calling the planner's tools.
+
+## Ideas and roadmap
+
+Next we show *where the water goes*, *why each spot floods* and *who must fix it*. Full list with data sources and effort in [IDEAS.md](IDEAS.md). Top picks:
+
+1. **Follow the Water:** click any spot to trace where its rain flows and what drains into it; mark dead-end ground where water ponds.
+2. **Bottleneck Finder:** nala-under-road chokepoints on low ground, checked against the official TRAC flooding-points map.
+3. **Official alerts:** NDMA SACHET (IMD) alerts on our timeline.
+4. **Encroachment Detector:** buildings inside lake and nala buffers, upstream of flooding, with a ready-to-file HYDRAA complaint.
+5. **Photo to depth:** AI reads water depth from a citizen photo and pre-fills a GHMC MyCURE complaint.
+6. **WhatsApp flood bot, CCTV water detection, patrol dashcams, hotspot sensors, satellite flood maps, flood-aware routing.**
 
 ## Run
 

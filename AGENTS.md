@@ -1,6 +1,6 @@
 # AGENTS.md: context for AI assistants working on SurgeForce
 
-Read this before changing anything. It explains what the project is, why it is built this way, where everything lives, and the rules that must not be broken. Human-facing docs: [README.md](README.md) (run and features), [OVERVIEW.md](OVERVIEW.md) (team pitch), [RESEARCH.md](RESEARCH.md) (sources, demo script, judge Q&A).
+Read this before changing anything. It explains what the project is, why it is built this way, where everything lives, and the rules that must not be broken. Human-facing docs: [README.md](README.md) (run and features), [IDEAS.md](IDEAS.md) (roadmap: next features, government data sources, asks), [OVERVIEW.md](OVERVIEW.md) (team pitch), [RESEARCH.md](RESEARCH.md) (sources, demo script, judge Q&A).
 
 ## 1. What this is
 
@@ -118,7 +118,7 @@ Deploy = push `main`; GitHub Pages serves the repo root (`.nojekyll` present). P
 - The Claude agent path is implemented but untested end-to-end (no API key during development). The Llama path is verified.
 - Only one replay event (2024-09-01); earlier years lack previous-runs data for most models.
 - Synthetic rosters (section 5.4) should be replaced with GHMC/police duty rosters and 1070 complaint logs.
-- Ideas: real WhatsApp/1070 intake, more replay events, per-zone calibration once more events exist.
+- Roadmap and data sources for next features are in [IDEAS.md](IDEAS.md). Top pick: "Follow the Water" (keep the D8 `down` array already computed in `scripts/fetch-hand.js`, add flow accumulation, trace paths on click).
 
 ## 11. When you change things
 
