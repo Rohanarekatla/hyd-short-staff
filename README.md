@@ -21,7 +21,8 @@ Next we show *where the water goes*, *why each spot floods* and *who must fix it
 3. **Official alerts:** NDMA SACHET (IMD) alerts on our timeline.
 4. **Encroachment Detector:** buildings inside lake and nala buffers, upstream of flooding, with a ready-to-file HYDRAA complaint.
 5. **Photo to depth:** AI reads water depth from a citizen photo and pre-fills a GHMC MyCURE complaint.
-6. **WhatsApp flood bot, CCTV water detection, patrol dashcams, hotspot sensors, satellite flood maps, flood-aware routing.**
+6. **Computer vision:** CCTV waterlogging and depth detection, blocked culvert and trash-screen detection, dashcam pre-monsoon drain audits, drone nala surveys and rescue mapping, camera-read water gauges.
+7. **WhatsApp flood bot, hotspot sensors, satellite flood maps, flood-aware routing.**
 
 ## Run
 

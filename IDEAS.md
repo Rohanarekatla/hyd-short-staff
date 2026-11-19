@@ -26,7 +26,7 @@ Hyderabad floods in the same places every year. GHMC and partner bodies flagged 
 
 ## 3. The ideas
 
-Each idea lists what it does, why it matters, the data it uses, and how hard it is. **Effort:** S = days with data we already have, M = a few weeks, L = needs a government data agreement or hardware.
+Six groups: A drainage, B accountability, C sensors, D government data, E response, F computer vision. Each idea lists what it does, why it matters, the data it uses, and how hard it is. **Effort:** S = days with data we already have, M = a few weeks, L = needs a government data agreement or hardware.
 
 ### A. Drainage intelligence: know where the water goes
 
@@ -107,6 +107,37 @@ Add hospitals, schools, anganwadi centres and health centres (Telangana open dat
 **E3. A plan that learns from every storm (effort M)**
 After each event, use the confirmed reports, sensors and satellite map to re-fit the numbers SurgeForce currently assumes (the 38% hit share, terrain flooding thresholds, incident rates). The system gets more accurate every monsoon, and every change is logged.
 
+### F. Computer vision: let cameras see the flood
+
+Computer vision (CV) turns cameras the city already has (police CCTV, traffic cameras, patrol dashcams, drones, phones, satellites) into flood sensors. Every CV idea below follows one rule: **process on the camera or edge server and send out only a flood signal (water yes/no, depth, blockage), never faces or number plates.** A human confirms before any action.
+
+**F1. CCTV waterlogging detection with depth (effort L, extends C2)**
+Point a water-segmentation model at the cameras that overlook the ~550 hotspots and 51 underpasses. It marks water on the road and estimates depth using road markings or car tyres as rulers. This is proven in research: Mask R-CNN on CCTV flood footage ([EGU24-3747](https://meetingorganizer.copernicus.org/EGU24/EGU24-3747.html)), waterline-to-depth from traffic cameras calibrated on road markings ([EGU25-10710](https://meetingorganizer.copernicus.org/EGU25/EGU25-10710.html)), tyre-based depth from traffic surveillance ([Inderscience](https://www.inderscience.com/info/inarticle.php?artid=148887)), and an island-wide video system in Taiwan that finds and maps flooding automatically ([Lo et al.](https://bohrium.dp.tech/paper/arxiv/2103.05927)). Floods often peak at night, so we use low-light models ([MDPI Water](https://mdpi.com/2073-4441/17/5/707)). *In SurgeForce:* the first camera to see water confirms the sector (stage 2) and depth above 30 cm at an underpass triggers its closure automatically, pending approval.
+
+**F2. Blocked culvert and trash-screen detection (effort M)**
+Fixed cameras at the chokepoints from A2 classify each culvert or trash screen as clear or blocked, so crews clear it *before* the rain. Research reached about 85% with a plain image classifier and about 94% with a detect-then-classify pipeline on culverts ([Wollongong, arXiv 2105.03232](https://arxiv.org/abs/2105.03232)), and close to 90% on CCTV of trash screens ([University of Bath](https://www.eurekalert.org/news-releases/1060746)). Feeds the B3 escalation clock: "blocked for 6 h, rain in 12 h, escalate".
+
+**F3. Pre-monsoon street audit from dashcam and street imagery (effort M, extends C3)**
+Run detectors on patrol dashcam video and open street-level imagery to find catch pits, manholes, garbage heaps next to drains, silt on roads and open manholes, and pin each one on the map with a photo. Mapillary already detects manholes as a map feature and offers an API ([Mapillary blog](https://blog.mapillary.com/update/2019/01/23/updating-maps-with-cameras-42-new-point-features.html)); its coverage in Hyderabad is patchy, so our own patrol dashcams fill the gaps. The result is a before-monsoon checklist per ward, and a check that the 1.3 lakh catch pits are actually clear.
+
+**F4. Drone nala survey (effort M)**
+Drones fly each major nala before the monsoon. Segmentation models flag garbage, silt banks, weeds, collapsed walls and new structures inside the nala buffer, measured in metres of channel lost. GHMC is already producing drone base maps for its drain GIS ([Siasat](https://www.siasat.com/ghmc-to-map-stormwater-drains-using-gis-tech-to-tackle-hyderabad-flooding-3259110)). Output: a ranked "clear this stretch first" list tied to A2 bottlenecks and B1 encroachments.
+
+**F5. Drone search and rescue after a flood (effort M)**
+During and after a flood, drones map which roads and buildings are under water and find people and vehicles on rooftops or stranded. Models trained on open post-flood drone datasets such as FloodNet (Hurricane Harvey, pixel-level labels for flooded roads and buildings, [arXiv](https://arxiv.org/pdf/2012.02951)) and RescueNet, plus standard person and vehicle detectors. Each detection becomes a geo-tagged rescue task in SurgeForce, routed to the nearest DRF team (E1).
+
+**F6. Satellite and drone change detection for encroachments (effort M, extends B1)**
+Compare images of the same lake or nala from different dates and flag new construction inside the full-tank-level buffer, so HYDRAA gets an alert when building starts, not after the bund breaks. Free Sentinel-2 imagery (10 m) is enough for lake water spread but too coarse for single buildings; building-level change needs high-resolution or drone imagery.
+
+**F7. Camera-read water gauges (effort S–M, alternative to C4)**
+Paint a water-level scale on the wall of each critical underpass and lake bund, and point a cheap camera or existing CCTV at it. CV reads the water level from the scale every minute: a calibrated, maintenance-light sensor without electronics in the water. Feeds underpass closures and A3 Lake Breach Watch. (Our idea; the reading step is standard detection plus OCR.)
+
+**F8. Citizen photo intelligence (effort M, extends B2)**
+One photo from a citizen can carry several signals: water depth (B2), an open manhole, a live wire in water, a fallen tree, a blocked drain. A multi-label classifier tags each and routes it: live wire to the electricity department and HUMAN_ONLY triage, open manhole to GHMC with an urgent flag. Same "AI may escalate, never downgrade" rule as our text triage.
+
+**F9. Satellite flood maps (effort M, see D3)**
+Sentinel-1 radar flood mapping is itself a CV problem (change detection and segmentation on radar images); we would use it to score the terrain model after each event.
+
 ## 4. Priorities
 
 | Order | Idea | Why first |
@@ -118,7 +149,8 @@ After each event, use the confirmed reports, sensors and satellite map to re-fit
 | 5 | B2 Photo to depth | Memorable demo, extends our existing AI |
 | 6 | C1 WhatsApp bot | Scales citizen reporting |
 | Then | A3, B3, B4, D3, E1–E3 | Build on the above |
-| With government | A4, C2, C4, D2, D5 | Need data access, cameras or hardware |
+| Then (CV) | F2, F3, F7, F8 | Cheap cameras and existing dashcams; strong demo value |
+| With government | A4, C2/F1, C4, D2, D5, F4, F5 | Need data access, cameras, drones or hardware |
 
 ## 5. What we would ask the government for
 
