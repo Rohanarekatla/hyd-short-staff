@@ -4,19 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SurgeForce · Hyderabad</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="app/style.css">
 </head>
 <body>
   <header>
-    <div class="brand"><b>SurgeForce</b><span>Hyderabad flood staffing command</span></div>
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div><b>SurgeForce</b><span>Hyderabad flood staffing command · GHMC EOC</span></div>
+    </div>
     <div class="controls">
       <div class="seg" id="mode">
         <button data-v="replay" class="on">Replay 31 Aug 2024</button>
         <button data-v="live">Live forecast</button>
       </div>
       <div class="seg" id="quant" title="Cost of a wasted deployment : loss from an unprepared flood. Act when probability ≥ this ratio.">
-        <span class="ctl" style="padding:0 6px">False alarm : miss</span>
+        <span class="seglabel">False alarm : miss</span>
         <button data-v="0.05">1:20</button><button data-v="0.1" class="on">1:10</button><button data-v="0.2">1:5</button><button data-v="0.33">1:3</button>
       </div>
       <label class="ctl">Station offline <select id="offline"><option value="">none</option></select></label>
@@ -28,18 +33,31 @@
   <main>
     <div class="left">
       <div id="map"></div>
-      <div class="fan"><div class="fanhead"><b>City rainfall: every forecast member</b><span id="fanNote"></span></div><svg id="fan" viewBox="0 0 600 150" preserveAspectRatio="none"></svg></div>
+      <div class="mapctl" id="mapctl">
+        <button data-view="3d" class="on">3D</button><button data-view="2d">2D</button><button data-view="reset" title="Reset view">⟲</button>
+      </div>
+      <div class="legend">
+        <div class="lh">Where water collects</div>
+        <div><i style="background:#2f7bff"></i>≤ 1 m above nearest drain</div>
+        <div><i style="background:#4fb3ff"></i>1–2.5 m</div>
+        <div><i style="background:#9fd6ff"></i>2.5–4 m</div>
+        <div><i style="background:#ff4d5e"></i>confirmed flooding</div>
+        <div class="lh">Police stations · height = exposure</div>
+        <div><i style="background:#3ccf91"></i>covered <i style="background:#f2b544;margin-left:8px"></i>counterpart <i style="background:#ff4d5e;margin-left:8px"></i>hit</div>
+        <div class="muted"><span style="color:#8fd3ff">━</span> Musi · <span style="color:#3f6a92">─</span> nala · ● underpass</div>
+      </div>
+      <div class="fan glass"><div class="fanhead"><b>City rainfall: every forecast member</b><span id="fanNote"></span></div><svg id="fan" viewBox="0 0 600 150" preserveAspectRatio="none"></svg></div>
     </div>
-    <aside>
+    <aside class="glass">
       <nav id="tabs">
         <button data-t="timeline" class="on">Timeline</button><button data-t="pairs">Counterparts</button>
         <button data-t="teams">Teams</button><button data-t="reports">Reports</button>
-        <button data-t="alerts">Alerts</button><button data-t="evidence">Evidence</button><button data-t="copilot">AI Assistant</button><button data-t="method">Method</button>
+        <button data-t="alerts">Alerts</button><button data-t="evidence">Evidence</button><button data-t="copilot" class="ai">AI Assistant</button><button data-t="method">Method</button>
       </nav>
       <div id="panel" class="panel"></div>
     </aside>
   </main>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script type="module" src="app/app.js"></script>
 </body>
 </html>

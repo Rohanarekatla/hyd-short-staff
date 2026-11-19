@@ -1,4 +1,4 @@
-/* global L */
+/* global maplibregl */
 // Everything runs in the browser: the planner, the simulation, CAP alerts, the on-device AI that triages
 // citizen reports, and the AI agent (Claude, or a local model through Ollama). Static hosting is enough.
 import { plan as runPlan } from '../lib/planner.js';
@@ -23,52 +23,95 @@ const fmt = (t) => t && new Date(`${t}:00Z`).toLocaleString('en-IN', { timeZone:
 const area = (n) => n.replace(/\b(traffic\s+)?police\s+station\b|\bpolice\b/gi, '').trim();
 const pct = (x) => `${Math.round(x * 100)}%`;
 
-// ---------- map ----------
-const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([17.41, 78.46], 11);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-  attribution: 'Tiles &copy; Esri · data &copy; OpenStreetMap contributors', maxZoom: 16,
-}).addTo(map);
-const layers = { terrain: L.layerGroup().addTo(map), links: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map) };
-const legend = L.control({ position: 'bottomleft' });
-legend.onAdd = () => {
-  const d = L.DomUtil.create('div', 'legend');
-  d.innerHTML = '<b>Where water collects (HAND)</b><br><i style="background:#1f6fff"></i>≤ 1 m above nearest drain<br>'
-    + '<i style="background:#4fb3ff"></i>1–2.5 m<br><i style="background:#a8d8ff"></i>2.5–4 m<br><i style="background:#ff4d4d"></i>confirmed flooding<br>'
-    + '<span style="color:#4fb3ff">━</span> Musi <span style="color:#6f8fb0">─</span> nala &nbsp; ◆ underpass &nbsp; <span style="color:#3ccf91">┅</span> counterpart';
-  return d;
-};
-legend.addTo(map);
-const handColor = (h) => (h <= 1 ? '#1f6fff' : h <= 2.5 ? '#4fb3ff' : '#a8d8ff');
+// ---------- map: MapLibre GL with real 3D terrain; flood exposure and station need drawn as extrusions ----------
+const DEM = { type: 'raster-dem', tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, maxzoom: 13, attribution: 'Elevation © Mapzen / AWS Terrain Tiles' };
+const VIEW = { center: [78.475, 17.385], zoom: 10.6, pitch: 60, bearing: -20 };
+const map = new maplibregl.Map({
+  container: 'map', ...VIEW, maxPitch: 78, attributionControl: { compact: true },
+  style: {
+    version: 8,
+    sources: {
+      base: { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 16, attribution: 'Tiles © Esri · data © OpenStreetMap contributors' },
+      dem: DEM, shade: DEM, // separate source for hillshade, as MapLibre recommends
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#070b11' } },
+      { id: 'base', type: 'raster', source: 'base', paint: { 'raster-opacity': 0.9, 'raster-brightness-max': 0.75, 'raster-saturation': -0.3 } },
+      { id: 'shade', type: 'hillshade', source: 'shade', paint: { 'hillshade-exaggeration': 0.6, 'hillshade-shadow-color': '#000000', 'hillshade-highlight-color': '#3a5675', 'hillshade-accent-color': '#05080c' } },
+    ],
+    terrain: { source: 'dem', exaggeration: 3 },
+    sky: { 'sky-color': '#0a1424', 'horizon-color': '#1b3150', 'fog-color': '#070b11', 'sky-horizon-blend': 0.7, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.25 },
+  },
+});
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+const fc = (features) => ({ type: 'FeatureCollection', features });
+const feat = (type, coordinates, properties = {}) => ({ type: 'Feature', geometry: { type, coordinates }, properties });
+const ll = (line) => line.map(([lat, lon]) => [lon, lat]);
+const box = ([lat, lon], dy, dx) => [[[lon - dx, lat - dy], [lon + dx, lat - dy], [lon + dx, lat + dy], [lon - dx, lat + dy], [lon - dx, lat - dy]]];
+const LINK = ['#3ccf91', '#b48cff', '#f2b544'];
+const ready = new Promise((resolve) => map.on('load', () => {
+  for (const id of ['nalas', 'musi', 'hand', 'links', 'under', 'stations']) map.addSource(id, { type: 'geojson', data: fc([]) });
+  map.addLayer({ id: 'nalas', type: 'line', source: 'nalas', paint: { 'line-color': '#3f6a92', 'line-width': 1, 'line-opacity': 0.55 } });
+  map.addLayer({ id: 'musi-glow', type: 'line', source: 'musi', paint: { 'line-color': '#4fb3ff', 'line-width': 10, 'line-blur': 8, 'line-opacity': 0.45 } });
+  map.addLayer({ id: 'musi', type: 'line', source: 'musi', paint: { 'line-color': '#8fd3ff', 'line-width': 2.2 } });
+  map.addLayer({ id: 'hand', type: 'fill-extrusion', source: 'hand', paint: {
+    'fill-extrusion-color': ['match', ['get', 'band'], 'conf', '#ff4d5e', 'b1', '#2f7bff', 'b2', '#4fb3ff', '#9fd6ff'],
+    'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-opacity': 0.82, 'fill-extrusion-vertical-gradient': true } });
+  map.addLayer({ id: 'links-ready', type: 'line', source: 'links', filter: ['!', ['get', 'active']], layout: { 'line-cap': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 1.6, 'line-dasharray': [2, 3], 'line-opacity': 0.85 } });
+  map.addLayer({ id: 'links-active', type: 'line', source: 'links', filter: ['get', 'active'], layout: { 'line-cap': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-opacity': 0.95 } });
+  map.addLayer({ id: 'stations', type: 'fill-extrusion', source: 'stations', paint: {
+    'fill-extrusion-color': ['get', 'color'], 'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-opacity': 0.95 } });
+  map.addLayer({ id: 'under', type: 'circle', source: 'under', paint: {
+    'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 14, 7], 'circle-color': ['case', ['get', 'closing'], '#ff4d5e', '#5d6b7a'],
+    'circle-stroke-color': '#e8f1fa', 'circle-stroke-width': 1, 'circle-pitch-alignment': 'map' } });
+  const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'tip', offset: 10 });
+  for (const id of ['under', 'links-ready', 'links-active', 'stations']) {
+    map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; tip.remove(); });
+    map.on('mousemove', id, (e) => tip.setLngLat(e.lngLat).setHTML(e.features[0].properties.tip).addTo(map));
+  }
+  map.on('click', 'stations', (e) => { tip.remove(); new maplibregl.Popup({ maxWidth: '340px', className: 'card-pop' }).setLngLat(e.lngLat).setHTML(sectorPopup(e.features[0].properties.i)).addTo(map); });
+  resolve();
+}));
 
-function drawMap() {
+async function drawMap() {
+  await ready;
   const { base, plan } = state;
-  Object.values(layers).forEach((l) => l.clearLayers());
   const conf = new Set(plan.sectors.filter((s) => s.confirmed).map((s) => s.id));
-  const alpha = 0.25 + 0.6 * plan.city.p2; // terrain glows brighter the likelier drains overflow
+  const k = 0.35 + plan.city.p2; // columns rise the likelier drains overflow
+  const cells = [];
   for (const [lat, lon, , h, sector] of base.hand.cells) {
     if (h > 4 && !conf.has(sector)) continue;
-    layers.terrain.addLayer(L.rectangle([[lat - 0.0011, lon - 0.0012], [lat + 0.0011, lon + 0.0012]], {
-      stroke: false, interactive: false, fillColor: conf.has(sector) ? '#ff4d4d' : handColor(h), fillOpacity: conf.has(sector) ? 0.55 : alpha,
-    }));
+    const c = conf.has(sector);
+    cells.push(feat('Polygon', box([lat, lon], 0.00105, 0.00113), { band: c ? 'conf' : h <= 1 ? 'b1' : h <= 2.5 ? 'b2' : 'b3', height: c ? 700 : Math.round((4.6 - h) * 95 * k) }));
   }
-  base.hand.waterways.forEach((line) => layers.terrain.addLayer(L.polyline(line, { color: '#6f8fb0', weight: 1, opacity: 0.6, interactive: false })));
-  base.musi.forEach((line) => layers.marks.addLayer(L.polyline(line, { color: '#4fb3ff', weight: 3, opacity: 0.9 })));
+  map.getSource('hand').setData(fc(cells));
+  map.getSource('nalas').setData(fc(base.hand.waterways.map((l) => feat('LineString', ll(l)))));
+  map.getSource('musi').setData(fc(base.musi.map((l) => feat('LineString', ll(l)))));
   const closing = new Set(plan.actions.filter((a) => a.kind === 'underpass').map((a) => a.id));
-  base.underpasses.forEach((u) => {
-    const icon = L.divIcon({ className: '', html: `<div class="up-icon ${closing.has(`close-${u.id}`) ? 'close' : ''}"></div>`, iconSize: [12, 12] });
-    layers.marks.addLayer(L.marker(u.pos, { icon }).bindTooltip(`${esc(u.name)} · HAND ${plan.underpassHand[u.id]} m${closing.has(`close-${u.id}`) ? ' · closure planned' : ''}`));
-  });
-  base.stations.forEach((s, i) => layers.marks.addLayer(L.circleMarker(s.pos, {
-    radius: 5, color: '#fff', weight: 1, fillColor: conf.has(i) ? '#ff4d4d' : '#3ccf91', fillOpacity: 1,
-  }).bindPopup(() => sectorPopup(i))));
-  const shown = plan.pairs.length ? plan.pairs : plan.designated;
-  for (const p of shown) {
-    const from = plan.donors[p.from].pos, to = plan.sectors[p.to].pos;
-    layers.links.addLayer(L.polyline([from, to], { color: ['#3ccf91', '#b48cff', '#f2b544'][p.tier], weight: plan.pairs.length ? 3 : 1.2,
-      dashArray: plan.pairs.length ? null : '4 6', opacity: 0.8 })
-      .bindTooltip(`${esc(plan.donors[p.from].name)} → ${esc(plan.sectors[p.to].name)}: ${p.people} officers${plan.pairs.length ? ' (active)' : ' (pre-designated)'}`));
-  }
+  map.getSource('under').setData(fc(base.underpasses.map((u) => {
+    const c = closing.has(`close-${u.id}`);
+    return feat('Point', [u.pos[1], u.pos[0]], { closing: c, tip: `<b>${esc(u.name)}</b><br>HAND ${plan.underpassHand[u.id]} m${c ? ' · <span class="bad">closure planned</span>' : ''}` });
+  })));
+  const shown = plan.pairs.length ? plan.pairs : plan.designated, active = plan.pairs.length > 0;
+  const receiving = new Set(shown.map((p) => p.to));
+  map.getSource('links').setData(fc(shown.map((p) => feat('LineString', [[plan.donors[p.from].pos[1], plan.donors[p.from].pos[0]], [plan.sectors[p.to].pos[1], plan.sectors[p.to].pos[0]]],
+    { active, color: LINK[p.tier], tip: `${esc(plan.donors[p.from].name)} → ${esc(plan.sectors[p.to].name)}<br><b>${p.people} officers</b> · ${active ? 'active' : 'pre-designated'}` }))));
+  const vmax = Math.max(1e-9, ...plan.sectors.map((s) => s.vulnerability));
+  map.getSource('stations').setData(fc(base.stations.map((s, i) => feat('Polygon', box(s.pos, 0.0032, 0.0034), {
+    i, height: Math.round(350 + 2400 * (plan.sectors[i]?.vulnerability ?? 0) / vmax),
+    color: conf.has(i) ? '#ff4d5e' : receiving.has(i) ? '#f2b544' : '#3ccf91',
+    tip: `<b>${esc(s.name)}</b><br>${conf.has(i) ? 'flooding confirmed' : receiving.has(i) ? 'has a counterpart' : 'covered locally'} · click for playbook` }))));
 }
+document.getElementById('mapctl').addEventListener('click', (e) => {
+  const v = e.target.closest('button')?.dataset.view;
+  if (v === '3d') map.easeTo({ pitch: 60, bearing: -20, duration: 900 });
+  if (v === '2d') map.easeTo({ pitch: 0, bearing: 0, duration: 900 });
+  if (v === 'reset') map.flyTo({ ...VIEW, duration: 1200 });
+  if (v) document.querySelectorAll('#mapctl [data-view="3d"], #mapctl [data-view="2d"]').forEach((b) => b.classList.toggle('on', b.dataset.view === (v === '2d' ? '2d' : '3d')));
+});
 
 function sectorPopup(i) {
   const s = state.plan.sectors[i], pb = state.plan.playbook[i];
@@ -104,7 +147,7 @@ function drawFan() {
 // ---------- KPIs ----------
 function drawKpis() {
   const m = state.plan.metrics, p = state.plan, c = p.city;
-  const k = (l, v, sub, cls = '') => `<div class="kpi"><div class="l">${l}</div><div class="v ${cls}">${v}</div><div class="s">${sub}</div></div>`;
+  const k = (l, v, sub, cls = '') => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v ${cls}">${v}</div><div class="s">${sub}</div></div>`;
   const team = (t, name) => k(name, `${t.sent}/${t.need}`, t.unmet ? `${t.unmet} short` : t.need ? 'staged' : 'none needed', t.unmet ? 'bad' : t.need ? 'good' : '');
   const day = c.outlook.reduce((a, o) => (o.p > a.p ? o : a), c.outlook[0]);
   $('#kpis').innerHTML = k('Flood-level rain somewhere in city', pct(c.p1), `${m.members} forecasts · act at ≥ ${pct(c.costLoss)}`, c.onset != null ? 'bad' : 'good')
