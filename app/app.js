@@ -43,6 +43,7 @@ const map = new maplibregl.Map({
     sky: { 'sky-color': '#0a1424', 'horizon-color': '#1b3150', 'fog-color': '#070b11', 'sky-horizon-blend': 0.7, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.25 },
   },
 });
+new ResizeObserver(() => map.resize()).observe(document.querySelector('.left'));
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 const fc = (features) => ({ type: 'FeatureCollection', features });
 const feat = (type, coordinates, properties = {}) => ({ type: 'Feature', geometry: { type, coordinates }, properties });
@@ -382,10 +383,20 @@ async function load() {
       forecast: { times: forecast.times, members: forecast.members.map((m) => m.name), musi: forecast.musi,
         cityHourly: forecast.members.map((m) => cityMean(m.series)), observedHourly: forecast.observed ? cityMean(forecast.observed) : null },
       actions: p.actions.map((a) => ({ ...a, approval: state.approvals.get(`${key}:${a.id}`) ?? null })) };
-    drawKpis(); drawMap(); drawFan(); drawPanel();
+    drawKpis(); drawFan(); drawPanel(); drawMap().then(bootDone);
   } catch (e) {
+    bootDone();
     $('#banner').hidden = false; $('#banner').textContent = `Could not build the plan: ${e.message}`;
   } finally { document.body.style.cursor = ''; }
+}
+
+// hide the boot screen once the 3D map has drawn (or after 8 s, so slow tiles never block the app)
+function bootDone() {
+  const b = $('#boot');
+  if (!b || b.classList.contains('done')) return;
+  $('#bootStep').textContent = 'Rendering 3D terrain…';
+  const hide = () => { b.classList.add('done'); setTimeout(() => b.remove(), 600); };
+  map.once('idle', hide); setTimeout(hide, 8000);
 }
 
 function approve(ids, decision) {

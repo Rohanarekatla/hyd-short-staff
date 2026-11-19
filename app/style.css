@@ -7,8 +7,9 @@
   -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; }
+html { height: 100%; }
 body {
-  margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  margin: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
   background: radial-gradient(1200px 600px at 15% -10%, #10233a 0%, transparent 60%), radial-gradient(900px 500px at 110% 10%, #1a1640 0%, transparent 55%), var(--bg);
 }
 ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #1f2d3e; border-radius: 8px; } ::-webkit-scrollbar-track { background: transparent; }
@@ -51,7 +52,7 @@ output { font-family: var(--mono); color: var(--text); min-width: 32px; }
 .kpi .v.bad { color: var(--act); text-shadow: 0 0 18px rgba(255,77,94,.35); } .kpi .v.good { color: var(--ok); text-shadow: 0 0 18px rgba(60,207,145,.3); }
 
 /* main */
-main { flex: 1; display: grid; grid-template-columns: 1fr 530px; gap: 12px; padding: 0 18px 14px; min-height: 0; }
+main { flex: 1 1 0; display: grid; grid-template-columns: minmax(0, 1fr) 530px; grid-template-rows: minmax(0, 1fr); gap: 12px; padding: 0 18px 14px; min-height: 0; }
 .left { position: relative; min-height: 0; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(0,0,0,.45); }
 #map { position: absolute; inset: 0; background: #070b11; }
 .mapctl { position: absolute; top: 12px; left: 12px; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
@@ -117,3 +118,13 @@ ul.lines { margin: 4px 0 0; padding-left: 16px; } ul.lines li { margin: 2px 0; }
   body { height: auto; overflow: auto; } main { grid-template-columns: 1fr; padding: 0 12px 12px; } .left { min-height: 560px; } aside { min-height: 600px; }
   .kpis { grid-template-columns: repeat(2, 1fr); padding: 10px 12px; } header { padding: 10px 12px; } .legend { display: none; }
 }
+
+/* boot screen: shown until the plan is built and the 3D map has drawn once */
+#boot { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: radial-gradient(800px 400px at 50% 40%, #10233a, transparent 70%), var(--bg); transition: opacity .5s; }
+#boot.done { opacity: 0; pointer-events: none; }
+#boot .box { text-align: center; } #boot .logo { width: 54px; height: 54px; margin: 0 auto 16px; border-radius: 14px; animation: pulse 1.6s ease-in-out infinite; }
+#boot b { font-size: 20px; display: block; } #boot .step { color: var(--muted); margin-top: 6px; font-size: 12.5px; min-height: 18px; }
+#boot .track { width: 220px; height: 3px; margin: 14px auto 0; border-radius: 3px; background: #142233; overflow: hidden; }
+#boot .track i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg, var(--accent), var(--accent2)); animation: slide 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.06); box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset, 0 8px 30px rgba(79,179,255,.55); } }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
