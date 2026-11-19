@@ -2,7 +2,7 @@
 
 AI command centre for flood staffing in Hyderabad (CipherCop 2026, Track 02). It decides, before the rain, which officers, teams and volunteers go where, and when, with a human commander approving every move.
 
-**Live demo:** https://rohanarekatla.github.io/hyd-short-staff/ · **Team overview:** [OVERVIEW.md](OVERVIEW.md) · **Research:** [RESEARCH.md](RESEARCH.md)
+**Live demo:** https://rohanarekatla.github.io/hyd-short-staff/ · **Team overview:** [OVERVIEW.md](OVERVIEW.md) · **Research:** [RESEARCH.md](RESEARCH.md) · **For AI assistants:** [AGENTS.md](AGENTS.md)
 
 Where AI does the work:
 
@@ -18,7 +18,7 @@ Everything runs in the browser, so any static host works (it is deployed on GitH
 
 ```bash
 npm start          # http://localhost:8520 (static server; all logic runs in the browser)
-npm test           # 8 tests, including the full two-stage plan and simulation on the real 2024 replay
+npm test           # 10 tests, including the full two-stage plan and simulation on the real 2024 replay
 npm run fetch-data # optional: refresh the OSM/DEM/OSRM/GloFAS snapshot in data/ (~2 min)
 npm run fetch-hand # optional: rebuild the 250 m HAND terrain grid (~1 min)
 npm run backtest   # optional: re-run the 2024-2025 forecast backtest (~1 min)
@@ -36,7 +36,7 @@ The data snapshot is committed, so replay mode works offline. Live mode fetches 
 | Feature | Inspired by | Where |
 |---|---|---|
 | Backtest of 2 monsoons: Brier skill, ROC, reliability, economic value; city vs point | Richardson, EMOS literature | `scripts/backtest.js`, `lib/calibrate.js` |
-| City-level probability (when) from a 122-member live ensemble, or the forecasts made 1–3 days before 31 Aug 2024 | ECMWF/NCEP ensembles | `lib/risk.js`, `lib/weather.js` |
+| City-level probability (when) from a 173-member live ensemble, or the forecasts made 1–3 days before 31 Aug 2024 | ECMWF/NCEP ensembles | `lib/risk.js`, `lib/weather.js` |
 | HAND terrain exposure (where) on a 250 m grid with OSM nalas | NOAA National Water Model | `scripts/fetch-hand.js`, `lib/risk.js` |
 | Cost–loss decision rule: act when P ≥ C/L | Richardson 2000 | `lib/risk.js` |
 | Monte Carlo + discrete-event response simulation with depth–disruption travel | Pregnolato 2017 | `lib/sim.js` |
@@ -61,12 +61,6 @@ The data snapshot is committed, so replay mode works offline. Live mode fetches 
 
 `index.html` and `app/` hold the UI, `lib/` the planner and AI (shared by browser and tests), `data/` the real-data snapshot, `scripts/` the data, backtest and eval builders, and `test/` the 10 tests.
 
-## Former API (now in-browser)
-
-- `GET /api/plan?mode=replay|live&cl=0.1&offline=<stationId>&noShow=0.3`
-- `GET /api/sim?key=` (response simulation), `GET /api/sitrep?key=&lang=en|te|hi|ur`
-- `POST /api/reports {text, key}`, `POST /api/reports/simulate?key=`, `DELETE /api/reports?key=`
-- `POST /api/approve {key, ids[], decision}`: appends to `data/audit.jsonl`
-- `GET /api/cap?key=&id=`: CAP 1.2 XML
+Approvals are stored in the browser (`localStorage`, key `surgeforce-audit`); there is no backend.
 
 Map data © OpenStreetMap contributors (ODbL). Weather data from Open-Meteo (CC BY 4.0). Flood data from GloFAS / Copernicus. Elevation from the Copernicus DEM and Mapzen/AWS Terrarium tiles (SRTM and others).
